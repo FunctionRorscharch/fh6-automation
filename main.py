@@ -390,6 +390,33 @@ class FH_UltimateBot(ctk.CTk):
         x = gx + (gw - w) // 2
         y = gy + (gh - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
+
+    def format_elapsed(self, seconds):
+        seconds = max(0, int(seconds))
+        hrs = seconds // 3600
+        mins = (seconds % 3600) // 60
+        secs = seconds % 60
+        return f"{hrs:02d}:{mins:02d}:{secs:02d}"
+
+    def reset_run_stats(self):
+        self.start_time = time.time()
+        self.active_task_name = "初始化"
+        self.active_task_started_at = self.start_time
+        self.task_time_totals = {
+            "循环跑图": 0.0,
+            "批量买车": 0.0,
+            "超级抽奖": 0.0,
+            "测试启动": 0.0,
+            "F3测图": 0.0,
+        }
+
+    def finalize_active_task_time(self):
+        task_name = getattr(self, "active_task_name", "")
+        started_at = getattr(self, "active_task_started_at", None)
+        if task_name in getattr(self, "task_time_totals", {}) and started_at:
+            self.task_time_totals[task_name] += max(0.0, time.time() - started_at)
+        self.active_task_started_at = time.time()
+
     def normalize_step_entry(self, entry_widget, default_value):
         try:
             v = "".join(c for c in entry_widget.get() if c.isdigit())
@@ -488,87 +515,10 @@ class FH_UltimateBot(ctk.CTk):
         self.config["auto_restart"] = self.var_auto_restart.get()
         self.config["restart_cmd"] = self.le_restart_cmd.get().strip()
         try:
-            if hasattr(self, "entry_calc_a"):
-                self.config["calc_a"] = self.entry_calc_a.get().strip()
-                self.config["calc_b"] = self.entry_calc_b.get().strip()
-                self.config["calc_c"] = self.entry_calc_c.get().strip()
-        except Exception:
-            pass
-        try:
             with open(USER_CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=4, ensure_ascii=False)
         except Exception as e:
             self.log(f"保存配置失败: {e}")
-
-    def auto_calculate_pipeline(self):
-        val_a = self.entry_calc_a.get().strip()
-        if not val_a:
-            self.log("未输入CR，无需计算。")
-            return
-            
-        try:
-            target_cr = int(val_a)
-            val_b = self.entry_calc_b.get().strip()
-            cost_per_car = int(val_b) if val_b else 81700
-            
-            val_c = self.entry_calc_c.get().strip()
-            sp_per_car = int(val_c) if val_c else 30
-        except Exception:
-            self.log("输入格式有误，请确保只输入数字！")
-            return
-
-        if cost_per_car <= 0 or sp_per_car <= 0:
-            self.log("单车成本或技能点不能为 0！")
-            return
-
-        # 1. 基础转换（总车数 & 总跑图数）
-        total_cars = target_cr // cost_per_car
-        total_races = (total_cars * sp_per_car) // 10
-
-        if total_races <= 0:
-            self.log(f"目标金额不足(只够买{total_cars}辆车)，无法产生有效跑图！")
-            return
-
-        # 2. 核心分配逻辑
-        if total_races <= 99:
-            final_loops = 1
-            final_races_per_loop = total_races
-        else:
-            import math
-            loops = math.ceil(total_races / 99)
-            avg_races = total_races // loops
-
-            # 如果平均下来大于等于70次，就采用均分策略
-            if avg_races >= 70:
-                final_loops = loops
-                final_races_per_loop = avg_races
-            # 小于70次，直接拉满每个99，舍弃最后不够塞满一轮的余数
-            else:
-                final_races_per_loop = 99
-                final_loops = total_races // 99 
-
-        # 3. 反推每一轮买车、抽奖的具体数量
-        cars_per_loop = (final_races_per_loop * 10) // sp_per_car
-
-        if final_loops <= 0:
-            self.log("计算后可用大循环次数为0。")
-            return
-
-        # 4. 自动填写到界面
-        self.entry_race.delete(0, "end")
-        self.entry_race.insert(0, str(final_races_per_loop))
-        
-        self.entry_car.delete(0, "end")
-        self.entry_car.insert(0, str(cars_per_loop))
-        
-        self.entry_cj.delete(0, "end")
-        self.entry_cj.insert(0, str(cars_per_loop))
-        
-        self.entry_global_loop.delete(0, "end")
-        self.entry_global_loop.insert(0, str(final_loops))
-
-        self.log(f"✅计算完成: 总计需{total_cars}车, 共跑图{total_races}次。分配为: {final_loops} 个大循环, 每轮跑图 {final_races_per_loop} 次, 动作 {cars_per_loop} 辆。")
-        self.save_config()
 
     # ==========================================
     # --- UI 布局设计 ---
@@ -823,53 +773,67 @@ class FH_UltimateBot(ctk.CTk):
         # =================================
 
 
-        # ====== 新增：智能计算分配工具栏 (放在下方) ======
-        # 【修改1】把 self.top_container 改成了 self
-        self.calc_frame = ctk.CTkFrame(self, fg_color="#18202B", height=48, corner_radius=8)
-        # 【修改2】加上了 padx=18，让它和上下边缘对齐
-        self.calc_frame.pack(fill="x", padx=16, pady=(8, 0))
-        self.calc_frame.pack_propagate(False)
-        ctk.CTkLabel(
-            self.calc_frame, 
-            text="次数计算器", 
-            font=ctk.CTkFont(weight="bold", size=15), 
-            text_color="#2EA043"
-        ).pack(side="left", padx=(16, 18))
-        ctk.CTkLabel(self.calc_frame, text="CR:").pack(side="left", padx=(0, 5))
-        self.entry_calc_a = ctk.CTkEntry(self.calc_frame, width=112, height=28, corner_radius=6, placeholder_text="留空不计算")
-        self.entry_calc_a.insert(0, self.config.get("calc_a", ""))
-        self.entry_calc_a.pack(side="left", padx=(0, 14))
-        ctk.CTkLabel(self.calc_frame, text="单车成本(CR):").pack(side="left", padx=(0, 5))
-        self.entry_calc_b = ctk.CTkEntry(self.calc_frame, width=76, height=28, corner_radius=6)
-        self.entry_calc_b.insert(0, self.config.get("calc_b", "81700"))
-        self.entry_calc_b.pack(side="left", padx=(0, 14))
-        ctk.CTkLabel(self.calc_frame, text="单车技能点:").pack(side="left", padx=(0, 5))
-        self.entry_calc_c = ctk.CTkEntry(self.calc_frame, width=52, height=28, corner_radius=6)
-        self.entry_calc_c.insert(0, self.config.get("calc_c", "30"))
-        self.entry_calc_c.pack(side="left", padx=(0, 14))
-        ctk.CTkButton(
-            self.calc_frame,
-            text="计算并应用",
-            width=90,
-            height=28,
-            corner_radius=6,
-            fg_color="#D35400",
-            hover_color="#A04000",
-            command=self.auto_calculate_pipeline
-        ).pack(side="left", padx=(0, 14))
-        
-        # 动态限制输入框长度（只允许数字并截断）
-        def limit_len(evt, widget, max_l):
-            val = "".join(c for c in widget.get() if c.isdigit())
-            if len(val) > max_l:
-                val = val[:max_l]
-            if widget.get() != val:
-                widget.delete(0, "end")
-                widget.insert(0, val)
-        self.entry_calc_a.bind("<KeyRelease>", lambda e: limit_len(e, self.entry_calc_a, 10))
-        self.entry_calc_b.bind("<KeyRelease>", lambda e: limit_len(e, self.entry_calc_b, 7))
-        self.entry_calc_c.bind("<KeyRelease>", lambda e: limit_len(e, self.entry_calc_c, 2))
-        # ==========================================
+        # ====== 运行监控栏 ======
+        self.runtime_frame = ctk.CTkFrame(self, fg_color="#18202B", height=64, corner_radius=8)
+        self.runtime_frame.pack(fill="x", padx=16, pady=(8, 0))
+        self.runtime_frame.pack_propagate(False)
+
+        self.lbl_run_state = ctk.CTkLabel(
+            self.runtime_frame,
+            text="待机",
+            width=74,
+            height=34,
+            corner_radius=7,
+            fg_color="#222B36",
+            text_color="#C9D1D9",
+            font=ctk.CTkFont(size=15, weight="bold"),
+        )
+        self.lbl_run_state.pack(side="left", padx=(14, 12), pady=12)
+
+        def make_runtime_label(title, value="--"):
+            frame = ctk.CTkFrame(self.runtime_frame, fg_color="transparent")
+            frame.pack(side="left", padx=(0, 18), pady=8)
+            ctk.CTkLabel(frame, text=title, text_color="#8B949E", font=ctk.CTkFont(size=11)).pack(anchor="w")
+            lbl = ctk.CTkLabel(frame, text=value, text_color="#F0F6FC", font=ctk.CTkFont(size=14, weight="bold"))
+            lbl.pack(anchor="w")
+            return lbl
+
+        self.lbl_runtime_task = make_runtime_label("当前任务", "等待中")
+        self.lbl_runtime_progress = make_runtime_label("任务进度", "0 / 0")
+        self.lbl_runtime_loop = make_runtime_label("大循环", "0 / 0")
+        self.lbl_runtime_task_time = make_runtime_label("本任务耗时", "00:00:00")
+        self.lbl_runtime_total_time = make_runtime_label("总运行时间", "00:00:00")
+        self.lbl_runtime_totals = make_runtime_label("模块累计", "跑图 00:00:00 | 买车 00:00:00 | 超抽 00:00:00")
+
+        self.btn_runtime_pause = ctk.CTkButton(
+            self.runtime_frame,
+            text="暂停 F9",
+            width=78,
+            height=34,
+            corner_radius=7,
+            fg_color="#F1C40F",
+            hover_color="#D4AC0D",
+            text_color="#111827",
+            font=ctk.CTkFont(weight="bold"),
+            command=self.toggle_pause,
+            state="disabled",
+        )
+        self.btn_runtime_pause.pack(side="right", padx=(0, 8), pady=12)
+
+        self.btn_runtime_stop = ctk.CTkButton(
+            self.runtime_frame,
+            text="停止 F8",
+            width=78,
+            height=34,
+            corner_radius=7,
+            fg_color="#DA3633",
+            hover_color="#B02A37",
+            font=ctk.CTkFont(weight="bold"),
+            command=self.stop_all,
+            state="disabled",
+        )
+        self.btn_runtime_stop.pack(side="right", padx=(0, 12), pady=12)
+
         #ctk.CTkLabel(self.global_settings_frame, text="图片原宽（不要修改）:").pack(side="left", padx=(10, 5))
         #self.entry_base_w = ctk.CTkEntry(self.global_settings_frame, width=70, height=28, justify="center")
         #self.entry_base_w.insert(0, str(self.config.get("base_width", 2560)))
@@ -878,32 +842,6 @@ class FH_UltimateBot(ctk.CTk):
         self.entry_next1.bind("<FocusOut>", lambda e: self.normalize_step_entry(self.entry_next1, 2))
         self.entry_next2.bind("<FocusOut>", lambda e: self.normalize_step_entry(self.entry_next2, 3))
         self.entry_next3.bind("<FocusOut>", lambda e: self.normalize_step_entry(self.entry_next3, 1))
-
-        # === 全新的横向迷你UI设计 ===
-        self.mini_frame = ctk.CTkFrame(self, fg_color="#111827", corner_radius=8)
-
-        # 运行时尽量少遮挡游戏画面：只保留状态和核心控制，不显示日志。
-        self.mini_info_frame = ctk.CTkFrame(self.mini_frame, fg_color="transparent")
-        self.mini_info_frame.pack(side="left", fill="both", expand=True, padx=(8, 4), pady=6)
-
-        self.lbl_mini_task = ctk.CTkLabel(self.mini_info_frame, text="任务: 等待中", font=ctk.CTkFont(size=12, weight="bold"), text_color="#58A6FF")
-        self.lbl_mini_task.grid(row=0, column=0, sticky="w", padx=0, pady=(0, 1))
-
-        self.lbl_mini_prog = ctk.CTkLabel(self.mini_info_frame, text="进度: 0 / 0", font=ctk.CTkFont(size=11))
-        self.lbl_mini_prog.grid(row=1, column=0, sticky="w", padx=0, pady=0)
-
-        self.lbl_mini_loop = ctk.CTkLabel(self.mini_info_frame, text="循环: 0 / 0", font=ctk.CTkFont(size=11))
-        self.lbl_mini_loop.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=0)
-
-        self.lbl_mini_time = ctk.CTkLabel(self.mini_info_frame, text="00:00:00", font=ctk.CTkFont(size=11))
-        self.lbl_mini_time.grid(row=2, column=0, columnspan=2, sticky="w", padx=0, pady=(0, 1))
-
-        self.btn_mini_stop = ctk.CTkButton(self.mini_frame, text="停", fg_color="#DA3633", hover_color="#B02A37", width=38, height=50, corner_radius=7, font=ctk.CTkFont(size=13, weight="bold"), command=self.stop_all)
-        self.btn_mini_stop.pack(side="left", fill="y", padx=(2, 4), pady=8)
-
-        # ====== 【新增】迷你面板上的暂停按钮 ======
-        self.btn_mini_pause = ctk.CTkButton(self.mini_frame, text="暂", fg_color="#F1C40F", hover_color="#D4AC0D", text_color="#111827", width=38, height=50, corner_radius=7, font=ctk.CTkFont(size=13, weight="bold"), command=self.toggle_pause)
-        self.btn_mini_pause.pack(side="left", fill="y", padx=(0, 8), pady=8)
 
 
         self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent", height=260)
@@ -939,12 +877,33 @@ class FH_UltimateBot(ctk.CTk):
     def update_timer(self):
         if not self.is_running:
             return
-        elapsed = int(time.time() - self.start_time)
-        hrs = elapsed // 3600
-        mins = (elapsed % 3600) // 60
-        secs = elapsed % 60
+
+        now = time.time()
+        total_elapsed = now - getattr(self, "start_time", now)
+        task_elapsed = now - getattr(self, "active_task_started_at", now)
+        totals = getattr(self, "task_time_totals", {})
+        race_total = totals.get("循环跑图", 0.0)
+        buy_total = totals.get("批量买车", 0.0)
+        cj_total = totals.get("超级抽奖", 0.0)
+
+        active_task = getattr(self, "active_task_name", "")
+        if active_task == "循环跑图":
+            race_total += task_elapsed
+        elif active_task == "批量买车":
+            buy_total += task_elapsed
+        elif active_task == "超级抽奖":
+            cj_total += task_elapsed
+
         try:
-            self.lbl_mini_time.configure(text=f"{hrs:02d}:{mins:02d}:{secs:02d}")
+            self.lbl_runtime_task_time.configure(text=self.format_elapsed(task_elapsed))
+            self.lbl_runtime_total_time.configure(text=self.format_elapsed(total_elapsed))
+            self.lbl_runtime_totals.configure(
+                text=(
+                    f"跑图 {self.format_elapsed(race_total)} | "
+                    f"买车 {self.format_elapsed(buy_total)} | "
+                    f"超抽 {self.format_elapsed(cj_total)}"
+                )
+            )
         except Exception: pass
         
         if self.is_running:
@@ -953,9 +912,37 @@ class FH_UltimateBot(ctk.CTk):
     def update_running_ui(self, task_name="", current_val=0, max_val=0):
         try:
             if task_name:
-                self.ui_call(self.lbl_mini_task.configure, text=f"任务: {task_name}")
+                old_task = getattr(self, "active_task_name", "")
+                if old_task != task_name:
+                    self.finalize_active_task_time()
+                    self.active_task_name = task_name
+                self.ui_call(self.lbl_runtime_task.configure, text=task_name)
             if max_val > 0:
-                self.ui_call(self.lbl_mini_prog.configure, text=f"进度: {current_val}/{max_val}")
+                self.ui_call(self.lbl_runtime_progress.configure, text=f"{current_val} / {max_val}")
+        except Exception:
+            pass
+
+    def update_running_state(self, state):
+        try:
+            if state == "running":
+                self.lbl_run_state.configure(text="运行中", fg_color="#238636", text_color="#FFFFFF")
+                self.btn_runtime_pause.configure(state="normal", text="暂停 F9", fg_color="#F1C40F", hover_color="#D4AC0D", text_color="#111827")
+                self.btn_runtime_stop.configure(state="normal")
+                self.btn_stop.configure(text="停止任务 (F8)", fg_color="#DA3633", hover_color="#B02A37")
+            elif state == "paused":
+                self.lbl_run_state.configure(text="已暂停", fg_color="#9A6700", text_color="#FFFFFF")
+                self.btn_runtime_pause.configure(state="normal", text="继续 F9", fg_color="#2EA043", hover_color="#238636", text_color="#FFFFFF")
+            else:
+                self.lbl_run_state.configure(text="待机", fg_color="#222B36", text_color="#C9D1D9")
+                self.lbl_runtime_task.configure(text="等待中")
+                self.lbl_runtime_progress.configure(text="0 / 0")
+                self.lbl_runtime_loop.configure(text="0 / 0")
+                self.lbl_runtime_task_time.configure(text="00:00:00")
+                self.lbl_runtime_total_time.configure(text="00:00:00")
+                self.lbl_runtime_totals.configure(text="跑图 00:00:00 | 买车 00:00:00 | 超抽 00:00:00")
+                self.btn_runtime_pause.configure(state="disabled", text="暂停 F9", fg_color="#F1C40F", hover_color="#D4AC0D", text_color="#111827")
+                self.btn_runtime_stop.configure(state="disabled")
+                self.btn_stop.configure(text="等待指令 (F8)", fg_color="#222B36", hover_color="#2F3B4A")
         except Exception:
             pass
 
@@ -1111,36 +1098,9 @@ class FH_UltimateBot(ctk.CTk):
         self.is_running = True
         self.save_config()
 
-        # 隐藏大窗的所有元素
-        self.config_frame.pack_forget()
-        self.global_settings_frame.pack_forget()
-        self.calc_frame.pack_forget()
-        self.top_container.pack_forget()
-        if hasattr(self, "bottom_frame"):
-            self.bottom_frame.pack_forget()
-
-        # 显示新的迷你横向 UI
-        self.mini_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # ====== 运行监视窗：尽量小，避免遮挡游戏识别区域 ======
-        last_x, last_y, last_w, last_h = self.regions["全界面"]
-        if last_w <= 0: last_w = self.winfo_screenwidth()
-        if last_h <= 0: last_h = self.winfo_screenheight()
-
-        calc_w = min(max(int(last_w * 0.16), 300), 380)
-        calc_h = min(max(int(last_h * 0.065), 72), 88)
-
-        pos_x = last_x + last_w - calc_w - 8
-        pos_y = last_y + 8
-
-        self.attributes("-topmost", True)
-        self.geometry(f"{calc_w}x{calc_h}+{pos_x}+{pos_y}")
-        
-        # 启动计时器
-        self.start_time = time.time()
+        self.reset_run_stats()
+        self.update_running_state("running")
         self.update_timer()
-
-        
         self.update_running_ui("初始化中...")
         self.race_counter = 0
         self.car_counter = 0
@@ -1160,8 +1120,7 @@ class FH_UltimateBot(ctk.CTk):
             except Exception:
                 total_loops = self.config.get("global_loops", 10)
             self.global_loop_current = 1
-            if hasattr(self, "lbl_mini_loop"):
-                self.ui_call(self.lbl_mini_loop.configure, text=f"循环: {self.global_loop_current}/{total_loops}")
+            self.ui_call(self.lbl_runtime_loop.configure, text=f"{self.global_loop_current} / {total_loops}")
 
             # 【新增】：全局连续失败计数器
             continuous_failures = 0 
@@ -1233,8 +1192,7 @@ class FH_UltimateBot(ctk.CTk):
                         
                     self.log(f"开启新一轮大循环 ({self.global_loop_current}/{total_loops})")
                     
-                    if hasattr(self, "lbl_mini_loop"):
-                        self.ui_call(self.lbl_mini_loop.configure, text=f"循环: {self.global_loop_current}/{total_loops}")
+                    self.ui_call(self.lbl_runtime_loop.configure, text=f"{self.global_loop_current} / {total_loops}")
 
                     self.race_counter = 0
                     self.car_counter = 0
@@ -1265,34 +1223,8 @@ class FH_UltimateBot(ctk.CTk):
         except Exception:
             pass
 
-        def restore_ui():
-            if hasattr(self, "mini_frame"):
-                self.mini_frame.pack_forget()
-                
-            # 【核心修复】：先让大容器里的东西全部解绑，洗牌重来
-            self.config_frame.pack_forget()
-            self.global_settings_frame.pack_forget()
-            self.calc_frame.pack_forget()
-            
-            # 1. 铺设最外层大容器
-            self.top_container.pack(fill="x", padx=16, pady=(16, 8))
-            
-            # 2. 依次按顺序塞入三个模块，完美保证从上到下的顺序！
-            self.config_frame.pack(fill="x")
-            self.global_settings_frame.pack(fill="x", padx=16, pady=(10, 0))
-            self.calc_frame.pack(fill="x", padx=16, pady=(8, 0))
-            
-            # 3. 铺设底部的日志和按钮
-            if hasattr(self, "bottom_frame"):
-                self.bottom_frame.pack(fill="both", expand=True, padx=16, pady=(10, 16))
-            
-            # 恢复窗口原本的状态
-            self.btn_stop.configure(text="等待指令 (F8)", fg_color="#222B36", hover_color="#2F3B4A")
-            self.attributes("-topmost", False)
-            self.geometry("1360x760")
-            self.center_window()
-
-        self.ui_call(restore_ui)
+        self.finalize_active_task_time()
+        self.ui_call(self.update_running_state, "idle")
         self.log("!!! 任务已停止，所有物理按键状态已强制重置")
     def start_test_boot(self):
         """独立运行的测试开机流程"""
@@ -1302,25 +1234,10 @@ class FH_UltimateBot(ctk.CTk):
             
         self.is_running = True
         self.save_config()
-        
-        # ==========================================
-        # 【新增修复】：隐藏大窗的所有元素，进入迷你模式
-        # ==========================================
-        self.config_frame.pack_forget()
-        self.global_settings_frame.pack_forget()
-        self.calc_frame.pack_forget()
-        self.top_container.pack_forget()
-        if hasattr(self, "bottom_frame"):
-            self.bottom_frame.pack_forget()
-
-        # 显示新的迷你横向 UI
-        self.mini_frame.pack(fill="both", expand=True, padx=10, pady=10)
-        
-        # 启动计时器与状态文字更新
-        self.update_running_ui("测试启动流程...")
-        self.start_time = time.time()
+        self.reset_run_stats()
+        self.update_running_state("running")
+        self.update_running_ui("测试启动")
         self.update_timer()
-        # ==========================================
 
         self.log("====== 开始独立测试自动开机与识别流程 ======")
         
@@ -1352,13 +1269,10 @@ class FH_UltimateBot(ctk.CTk):
                 pydirectinput.mouseUp()
             except Exception:
                 pass
-            # 改变按钮UI
-            if hasattr(self, "btn_mini_pause"):
-                self.ui_call(self.btn_mini_pause.configure, text="续", fg_color="#2EA043", hover_color="#238636", text_color="#FFFFFF")
+            self.ui_call(self.update_running_state, "paused")
         else:
             self.log("▶ 任务已恢复")
-            if hasattr(self, "btn_mini_pause"):
-                self.ui_call(self.btn_mini_pause.configure, text="暂", fg_color="#F1C40F", hover_color="#D4AC0D", text_color="#111827")
+            self.ui_call(self.update_running_state, "running")
 
     def check_pause(self):
         """核心阻塞器：任何动作前调用此方法，如果是暂停状态，将在此无限等待"""
@@ -1494,18 +1408,6 @@ class FH_UltimateBot(ctk.CTk):
                         # 兜底：如果获取不到屏幕边界，就用游戏窗口边界
                         mx, my, mw, mh = gx, gy, gw, gh
 
-                    # ====== 【修改】：小窗口精准吸附所在显示器的右上角 ======
-                    def snap_to_game():
-                        if self.is_running:
-                            calc_w = min(max(int(mw * 0.16), 300), 380)
-                            calc_h = min(max(int(mh * 0.065), 72), 88)
-                            
-                            # 放置在当前显示器的右上角，尽量贴边减少遮挡。
-                            pos_x = mx + mw - calc_w - 8
-                            pos_y = my + 8
-                            self.geometry(f"{calc_w}x{calc_h}+{pos_x}+{pos_y}")
-                    self.ui_call(snap_to_game)
-                    # ==========================================
                 except Exception as e:
                     self.log(f"获取窗口坐标失败: {e}")
 
@@ -2663,99 +2565,214 @@ class FH_UltimateBot(ctk.CTk):
             time.sleep(interval)
         return None
 
+    def find_new_tag_by_color(self, screen_bgr, tag_tpl, scale):
+        try:
+            h_s, w_s = screen_bgr.shape[:2]
+            hsv = cv2.cvtColor(screen_bgr, cv2.COLOR_BGR2HSV)
+            # “全新”标签是高亮黄色，先用颜色把候选范围从整屏压到很小。
+            mask = cv2.inRange(hsv, np.array([22, 80, 160]), np.array([42, 255, 255]))
+            kernel = np.ones((3, 3), np.uint8)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
+
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            candidates = []
+            tag_h, tag_w = tag_tpl.shape[:2]
+            card_w = max(180, int(267 * scale))
+            card_h = max(130, int(198 * scale))
+
+            for cnt in contours:
+                x, y, w, h = cv2.boundingRect(cnt)
+                area = w * h
+                if area < 80 or area > 6000:
+                    continue
+                if w < 12 or h < 8 or w > 90 or h > 70:
+                    continue
+                if w / max(h, 1) < 0.6:
+                    continue
+
+                pad = max(8, int(12 * scale))
+                x1 = max(0, x - pad)
+                y1 = max(0, y - pad)
+                x2 = min(w_s, x + w + pad)
+                y2 = min(h_s, y + h + pad)
+                tag_roi = screen_bgr[y1:y2, x1:x2]
+                tag_score = self.match_template_score(tag_roi, tag_tpl)
+                if tag_score < 0.52:
+                    continue
+
+                card_x = int((x + w / 2) - card_w * 0.78)
+                card_y = int((y + h / 2) - card_h * 0.78)
+                card_x = max(0, min(card_x, w_s - card_w))
+                card_y = max(0, min(card_y, h_s - card_h))
+                center_x = card_x + card_w // 2
+                center_y = card_y + card_h // 2
+
+                candidates.append((tag_score, card_x, card_y, card_w, card_h, center_x, center_y, x, y, w, h))
+
+            if not candidates:
+                return []
+
+            candidates.sort(key=lambda item: (-item[0], item[8], item[7]))
+            return candidates
+        except Exception as e:
+            self.log(f"find_new_tag_by_color 异常: {e}")
+            return []
+
+    def validate_new_tag_grid_fallback(self, screen_bgr, tx, ty, tw, th):
+        try:
+            h_s, w_s = screen_bgr.shape[:2]
+            if tx < int(w_s * 0.20) or ty < int(h_s * 0.18) or ty > int(h_s * 0.92):
+                return None
+
+            # 标签左上方应该是白色车辆卡片主体。
+            wx1 = max(0, tx - 145)
+            wy1 = max(0, ty - 105)
+            wx2 = max(0, tx - 12)
+            wy2 = max(0, ty - 8)
+            white_roi = screen_bgr[wy1:wy2, wx1:wx2]
+            if white_roi.size == 0:
+                return None
+            white_mask = (
+                (white_roi[:, :, 0] > 185) &
+                (white_roi[:, :, 1] > 185) &
+                (white_roi[:, :, 2] > 185)
+            )
+            white_ratio = float(np.count_nonzero(white_mask)) / max(1, white_mask.size)
+            if white_ratio < 0.18:
+                return None
+
+            # 标签左下方通常能看到橙色车型信息条或等级条；标签贴近底部时要向上覆盖一点。
+            ox1 = max(0, tx - 190)
+            oy1 = max(0, ty - 12)
+            ox2 = min(w_s, tx + 85)
+            oy2 = min(h_s, ty + th + 44)
+            orange_roi = screen_bgr[oy1:oy2, ox1:ox2]
+            if orange_roi.size == 0:
+                return None
+            hsv = cv2.cvtColor(orange_roi, cv2.COLOR_BGR2HSV)
+            orange_mask = cv2.inRange(hsv, np.array([8, 80, 140]), np.array([32, 255, 255]))
+            orange_ratio = float(np.count_nonzero(orange_mask)) / max(1, orange_mask.size)
+            if orange_ratio < 0.035:
+                return None
+
+            click_x = max(0, min(w_s - 1, tx - 60))
+            click_y = max(0, min(h_s - 1, ty - 42))
+            return click_x, click_y, white_ratio, orange_ratio
+        except Exception as e:
+            self.log(f"validate_new_tag_grid_fallback 异常: {e}")
+            return None
+
     def find_new_consumable_car_strict(self, region=None):
         if not self.is_running:
             return None
         try:
             screen_bgr = self.capture_region(region)
-            screen_gray = self.to_gray_image(screen_bgr)
-            screen_edge = self.to_edge_image(screen_bgr)
+            scales = []
+            for s in [1.0, 0.98, 1.02, 0.95, 1.05]:
+                if s not in scales:
+                    scales.append(s)
+            for s in self.get_scales_to_try(fast_mode=False):
+                if s not in scales:
+                    scales.append(s)
 
-            for scale in self.get_scales_to_try(fast_mode=False):
+            for scale in scales:
                 main_tpl, _ = self.get_scaled_template("newCC.png", scale)
                 tag_tpl, _ = self.get_scaled_template("newcartag.png", scale)
-                if main_tpl is None or tag_tpl is None:
+                class_tpl, _ = self.get_scaled_template("classB600.png", scale)
+                if main_tpl is None or tag_tpl is None or class_tpl is None:
                     continue
 
-                h, w = main_tpl.shape[:2]
-                if h < 20 or w < 20 or h > screen_bgr.shape[0] or w > screen_bgr.shape[1]:
+                h_m, w_m = main_tpl.shape[:2]
+                h_t, w_t = tag_tpl.shape[:2]
+                h_c, w_c = class_tpl.shape[:2]
+                if h_m < 20 or w_m < 20 or h_m > screen_bgr.shape[0] or w_m > screen_bgr.shape[1]:
+                    continue
+                if h_t < 8 or w_t < 12 or h_t > screen_bgr.shape[0] or w_t > screen_bgr.shape[1]:
+                    continue
+                if h_c < 8 or w_c < 20 or h_c > screen_bgr.shape[0] or w_c > screen_bgr.shape[1]:
                     continue
 
-                tpl_gray = self.to_gray_image(main_tpl)
-                tpl_edge = self.to_edge_image(main_tpl)
-                res = cv2.matchTemplate(screen_bgr, main_tpl, cv2.TM_CCOEFF_NORMED)
-                flat = res.ravel()
-                if flat.size == 0:
-                    continue
+                tag_res = cv2.matchTemplate(screen_bgr, tag_tpl, cv2.TM_CCOEFF_NORMED)
+                loc = np.where(tag_res >= 0.72)
+                tag_points = list(zip(*loc[::-1]))
+                if not tag_points:
+                    _, max_tag, _, max_loc = cv2.minMaxLoc(tag_res)
+                    if max_tag >= 0.64:
+                        tag_points = [max_loc]
 
-                top_k = min(40, flat.size)
-                idxs = np.argpartition(flat, -top_k)[-top_k:]
-                candidates = []
-                checked = set()
-
-                for idx in idxs:
-                    y, x = np.unravel_index(idx, res.shape)
-                    if (x // 12, y // 12) in checked:
+                checked_tags = set()
+                tag_candidates = []
+                for tx, ty in tag_points:
+                    if tx < int(screen_bgr.shape[1] * 0.20) or ty < int(screen_bgr.shape[0] * 0.18) or ty > int(screen_bgr.shape[0] * 0.90):
                         continue
-                    checked.add((x // 12, y // 12))
-
-                    roi_bgr = screen_bgr[y:y + h, x:x + w]
-                    if roi_bgr.shape[:2] != main_tpl.shape[:2]:
+                    tag_key = (tx // 18, ty // 14)
+                    if tag_key in checked_tags:
                         continue
+                    checked_tags.add(tag_key)
+                    tag_candidates.append((ty, tx, float(tag_res[ty, tx])))
 
-                    tag_pad = 8
-                    tag_roi = screen_bgr[
-                        max(0, y - tag_pad):min(screen_bgr.shape[0], y + h + tag_pad),
-                        max(0, x - tag_pad):min(screen_bgr.shape[1], x + w + tag_pad),
-                    ]
-                    tag_score = self.match_template_score(tag_roi, tag_tpl)
-                    if tag_score < 0.68:
-                        continue
-
-                    roi_gray = screen_gray[y:y + h, x:x + w]
-                    roi_edge = screen_edge[y:y + h, x:x + w]
-                    color_score = self.match_template_score(roi_bgr, main_tpl)
-                    gray_score = self.match_template_score(roi_gray, tpl_gray)
-                    edge_score = self.match_template_score(roi_edge, tpl_edge)
-                    top_score = self.match_template_score(
-                        roi_gray[:max(10, int(h * 0.28)), :],
-                        tpl_gray[:max(10, int(h * 0.28)), :]
-                    )
-                    bottom_score = self.match_template_score(
-                        roi_bgr[int(h * 0.68):, :],
-                        main_tpl[int(h * 0.68):, :]
-                    )
-                    final_score = (
-                        color_score * 0.30 +
-                        gray_score * 0.22 +
-                        edge_score * 0.15 +
-                        top_score * 0.18 +
-                        bottom_score * 0.10 +
-                        tag_score * 0.05
-                    )
-                    candidates.append((final_score, x, y, color_score, gray_score, edge_score, top_score, bottom_score, tag_score, scale))
-
-                if not candidates:
-                    self.log(f"[StrictCar] 缩放 {scale:.3f} 未产生候选，可能是 newCC 或 newcartag 模板不匹配。")
+                tag_candidates.sort()
+                if not tag_candidates:
+                    self.log(f"[StrictCar] 缩放 {scale:.3f} 未找到全新标签候选。")
                     continue
 
-                candidates.sort(key=lambda item: item[0], reverse=True)
-                best = candidates[0]
-                second_score = candidates[1][0] if len(candidates) > 1 else 0.0
-                score_gap = best[0] - second_score
+                for ty, tx, tag_score in tag_candidates:
+                    # 验证 2：全新标签下方/左下方必须能找到目标等级 B600。
+                    cx1 = max(0, int(tx - w_c * 1.45))
+                    cy1 = max(0, int(ty - h_c * 0.25))
+                    cx2 = min(screen_bgr.shape[1], int(tx + w_t + w_c * 0.40))
+                    cy2 = min(screen_bgr.shape[0], int(ty + h_t + h_c * 1.70))
+                    class_search = screen_bgr[cy1:cy2, cx1:cx2]
+                    if class_search.shape[0] < h_c or class_search.shape[1] < w_c:
+                        continue
 
-                if best[0] >= 0.68 and best[3] >= 0.68 and best[6] >= 0.66 and score_gap >= 0.010:
-                    _, x, y, color_score, gray_score, edge_score, top_score, bottom_score, tag_score, used_scale = best
+                    class_res = cv2.matchTemplate(class_search, class_tpl, cv2.TM_CCOEFF_NORMED)
+                    _, class_score, _, class_loc = cv2.minMaxLoc(class_res)
+                    if class_score < 0.58:
+                        self.log(
+                            f"[StrictCar] 全新通过但等级不符: NEW:{tag_score:.3f} "
+                            f"B600:{class_score:.3f} 缩放:{scale:.3f}"
+                        )
+                        continue
+
+                    class_x = cx1 + class_loc[0]
+                    class_y = cy1 + class_loc[1]
+
+                    # 验证 3：以全新标签为锚点，只向左上方缩放搜索目标车辆卡片。
+                    sx1 = max(0, int(tx - w_m * 1.12))
+                    sy1 = max(0, int(ty - h_m * 1.08))
+                    sx2 = min(screen_bgr.shape[1], int(tx - w_m * 0.05 + w_t))
+                    sy2 = min(screen_bgr.shape[0], int(ty - h_m * 0.05 + h_t))
+                    search = screen_bgr[sy1:sy2, sx1:sx2]
+                    if search.shape[0] < h_m or search.shape[1] < w_m:
+                        continue
+
+                    near_res = cv2.matchTemplate(search, main_tpl, cv2.TM_CCOEFF_NORMED)
+                    _, near_score, _, near_loc = cv2.minMaxLoc(near_res)
+                    card_x = sx1 + near_loc[0]
+                    card_y = sy1 + near_loc[1]
+
+                    tag_rel_x = tx - card_x
+                    tag_rel_y = ty - card_y
+                    if not (int(w_m * 0.62) <= tag_rel_x <= int(w_m * 1.08) and int(h_m * 0.55) <= tag_rel_y <= int(h_m * 1.08)):
+                        self.log(
+                            f"[StrictCar] 标签附近目标车位置不符: NEW:{tag_score:.3f} "
+                            f"近邻:{near_score:.3f} 相对:({tag_rel_x},{tag_rel_y}) 缩放:{scale:.3f}"
+                        )
+                        continue
+
+                    if near_score >= 0.56:
+                        self.log(
+                            f"[StrictCar] 全新+B600+目标车通过: NEW:{tag_score:.3f} B600:{class_score:.3f} "
+                            f"目标:{near_score:.3f} 标签相对:({tag_rel_x},{tag_rel_y}) "
+                            f"等级:({class_x},{class_y}) 缩放:{scale:.3f}"
+                        )
+                        return (card_x + w_m // 2 + (region[0] if region else 0), card_y + h_m // 2 + (region[1] if region else 0))
+
                     self.log(
-                        f"[StrictCar] 锁定目标: 综合:{best[0]:.3f} | 次高:{second_score:.3f} | 差值:{score_gap:.3f} | "
-                        f"彩色:{color_score:.3f} 灰度:{gray_score:.3f} 边缘:{edge_score:.3f} "
-                        f"车名:{top_score:.3f} 底部:{bottom_score:.3f} NEW:{tag_score:.3f} 缩放:{used_scale:.3f}"
+                        f"[StrictCar] 标签附近目标车分数不足: NEW:{tag_score:.3f} "
+                        f"目标:{near_score:.3f} 相对:({tag_rel_x},{tag_rel_y}) 缩放:{scale:.3f}"
                     )
-                    return (x + w // 2 + (region[0] if region else 0), y + h // 2 + (region[1] if region else 0))
-
-                self.log(
-                    f"[StrictCar] 候选不足够可靠: 最高:{best[0]:.3f} 次高:{second_score:.3f} 差值:{score_gap:.3f}"
-                )
 
             return None
         except Exception as e:
@@ -3154,21 +3171,10 @@ class FH_UltimateBot(ctk.CTk):
         self.is_paused = False
         self.save_config()
 
-        # ====== 切换到迷你模式，和其他测试流程保持一致 ======
-        self.config_frame.pack_forget()
-        self.global_settings_frame.pack_forget()
-        self.calc_frame.pack_forget()
-        self.top_container.pack_forget()
-        if hasattr(self, "bottom_frame"):
-            self.bottom_frame.pack_forget()
-
-        self.mini_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-        self.update_running_ui("F3测试找图", 0, 12)
-        if hasattr(self, "lbl_mini_loop"):
-            self.ui_call(self.lbl_mini_loop.configure, text="测图模式")
-
-        self.start_time = time.time()
+        self.reset_run_stats()
+        self.update_running_state("running")
+        self.update_running_ui("F3测图", 0, 12)
+        self.ui_call(self.lbl_runtime_loop.configure, text="测试模式")
         self.update_timer()
 
         self.log("====== 开始 F3 测试原二阶找图 ======")
@@ -3876,7 +3882,7 @@ class FH_UltimateBot(ctk.CTk):
                 fast_mode=False
             )
             if not pos_cls:
-                self.log("未找到车辆专精")
+                self.log("未找到车辆专精，可能未成功进入目标车辆升级页面或选中了非目标车辆。")
                 return False
             self.game_click(pos_cls)
             time.sleep(1.5)
