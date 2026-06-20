@@ -397,6 +397,7 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
             "race_timeout": 300,
             "ai_assist": False,
             "ai_prefer": False,
+            "ai_only": False,
             "ai_auto_capture": False,
             "ai_model_path": "models/fh6_car_select_yolo.pt"
         }
@@ -442,6 +443,8 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
             self.config["ai_assist"] = self.var_ai_assist.get()
         if hasattr(self, "var_ai_prefer"):
             self.config["ai_prefer"] = self.var_ai_prefer.get()
+        if hasattr(self, "var_ai_only"):
+            self.config["ai_only"] = self.var_ai_only.get()
         if hasattr(self, "var_ai_auto_capture"):
             self.config["ai_auto_capture"] = self.var_ai_auto_capture.get()
         if hasattr(self, "le_restart_cmd"):
@@ -721,6 +724,9 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
         enabled = bool(self.var_ai_assist.get())
         self.config["ai_assist"] = enabled
         if not enabled:
+            if hasattr(self, "var_ai_only"):
+                self.var_ai_only.set(False)
+                self.config["ai_only"] = False
             self.yolo_car_select_model = None
             self.yolo_car_select_model_path = None
         self.save_config()
@@ -731,6 +737,17 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
         self.config["ai_prefer"] = enabled
         self.save_config()
         self.log("AI first enabled." if enabled else "AI first disabled.")
+
+    def on_ai_only_changed(self):
+        enabled = bool(self.var_ai_only.get())
+        self.config["ai_only"] = enabled
+        if enabled:
+            self.var_ai_assist.set(True)
+            self.var_ai_prefer.set(True)
+            self.config["ai_assist"] = True
+            self.config["ai_prefer"] = True
+        self.save_config()
+        self.log("AI only enabled." if enabled else "AI only disabled.")
 
     def on_ai_auto_capture_changed(self):
         enabled = bool(self.var_ai_auto_capture.get())

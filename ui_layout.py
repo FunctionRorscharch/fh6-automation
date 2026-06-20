@@ -88,6 +88,7 @@ def setup_ui(bot):
     bot.var_chk3 = ctk.BooleanVar(value=bot.config["chk_3"])
     bot.var_ai_assist = ctk.BooleanVar(value=bot.config.get("ai_assist", False))
     bot.var_ai_prefer = ctk.BooleanVar(value=bot.config.get("ai_prefer", False))
+    bot.var_ai_only = ctk.BooleanVar(value=bot.config.get("ai_only", False))
     bot.var_ai_auto_capture = ctk.BooleanVar(value=bot.config.get("ai_auto_capture", False))
     bot.var_auto_restart = ctk.BooleanVar(value=False)
 
@@ -190,6 +191,15 @@ def setup_ui(bot):
         font=font_small,
     )
     bot.sw_ai_prefer.pack(side="left", padx=(0, 6))
+    bot.sw_ai_only = ctk.CTkSwitch(
+        assist_row,
+        text="纯AI",
+        variable=bot.var_ai_only,
+        command=bot.on_ai_only_changed,
+        progress_color=colors["purple"],
+        font=font_small,
+    )
+    bot.sw_ai_only.pack(side="left", padx=(0, 6))
     bot.sw_ai_auto_capture = ctk.CTkSwitch(
         assist_row,
         text="自动截图",
