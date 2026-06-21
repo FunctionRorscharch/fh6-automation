@@ -262,6 +262,7 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
         self.ai_car_debug_last_miss_save = 0.0
         self.yolo_car_select_model = None
         self.yolo_car_select_model_path = None
+        self.race_notice_shown = False
 
         self.init_regions()
 
@@ -372,6 +373,12 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
             "左": (x, y, w // 2, h),
             "右": (x + w // 2, y, w // 2, h),
             "中间": (x + w // 4, y + h // 4, w // 2, h // 2),
+            "车辆菜单列表": (
+                x,
+                y + int(h * 0.48),
+                int(w * 0.26),
+                int(h * 0.42),
+            ),
         }
 
     # ==========================================
@@ -1135,6 +1142,21 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
         if self.is_running:
             return
 
+        if start_step == "race" and not self.race_notice_shown:
+            race_notice = (
+                "为了兼容性，请务必将游戏界面设置到1080P窗口模式，关闭HDR。"
+                "\n\n点击确定才会开始流程，本弹窗只会出现一次。"
+            )
+            ok = ctypes.windll.user32.MessageBoxW(
+                0,
+                race_notice,
+                "循环跑图开始提示",
+                0x1 | 0x30,
+            )
+            if ok != 1:
+                return
+            self.race_notice_shown = True
+
         self.is_running = True
         self.save_config()
 
@@ -1653,9 +1675,10 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
     def is_in_menu(self):
         return self.find_image_gray(
             "collectionjournal.png",
-            region=self.regions["左"],
-            threshold=0.70,
-            fast_mode=True
+            region=self.regions["全界面"],
+            threshold=0.66,
+            fast_mode=False,
+            invert_mode=True,
         )
     def enter_menu(self):
         self.log("正在尝试进入主菜单...")
@@ -1665,7 +1688,13 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
                 return False
 
 
-            pos_menu = self.find_image_gray("collectionjournal.png", region=self.regions["左"], threshold=0.70, fast_mode=True)
+            pos_menu = self.find_image_gray(
+                "collectionjournal.png",
+                region=self.regions["全界面"],
+                threshold=0.66,
+                fast_mode=False,
+                invert_mode=True,
+            )
 
             if pos_menu:
                 self.log(f"成功定位到菜单锚点！({i + 1}/60)")
@@ -1770,7 +1799,6 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
             return False
 
         self.game_click(pos_el)
-        time.sleep(1.2)
 
         pos_yg = self.wait_for_image_gray(
             "playenent.png",
@@ -1785,7 +1813,7 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
             return False
 
         self.game_click(pos_yg)
-        time.sleep(1.5)
+        time.sleep(1.5)    #点击游玩赛事后的延时
 
         self.hw_press("backspace")
         time.sleep(0.8)
@@ -1805,33 +1833,48 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
         time.sleep(0.4)
         self.hw_press("enter")
         time.sleep(0.8)
-        self.hw_press("down")
+        self.hw_press("down")  # 蓝图输入并回车后，向下定位到确认按钮
         time.sleep(0.3)
         self.hw_press("enter")
-        time.sleep(1.5)
+        self.log("搜索蓝图中")
+        blueprint_result = None
+        blueprint_wait_deadline = time.time() + 20
+        blueprint_last_wait_log = 0.0
+        while self.is_running and time.time() < blueprint_wait_deadline:
+            now = time.time()
+            if now - blueprint_last_wait_log >= 2.0:
+                remaining = max(0.0, blueprint_wait_deadline - now)
+                self.log(f"蓝图搜索结果待确认，继续等待... 剩余 {remaining:.1f}s")
+                blueprint_last_wait_log = now
 
-        pos_ck = None
-        wait_deadline = time.time() + 20
-        while self.is_running and time.time() < wait_deadline:
-            if self.find_image_gray("racenotfound.png", region=self.regions["全界面"], threshold=0.75, fast_mode=True):
+            if self.find_image_gray(
+                "racenotfound.png",
+                region=self.regions["全界面"],
+                threshold=0.70,
+                fast_mode=False,
+                invert_mode=True,
+            ):
                 return self.abort_invalid_blueprint_and_back_to_roam()
 
-            pos_ck = self.find_image_gray(
+            blueprint_result = self.find_image_gray(
                 "VEI.png",
                 region=self.regions["下"],
-                threshold=0.75,
-                fast_mode=True
+                threshold=0.70,
+                fast_mode=False,
+                invert_mode=True,
             )
-            if pos_ck:
+            if blueprint_result:
+                self.log("已识别到目标赛事信息")
                 break
 
             time.sleep(0.25)
-        if not pos_ck:
+
+        if not blueprint_result:
             return self.abort_invalid_blueprint_and_back_to_roam()
 
-        self.hw_press("enter")
-        time.sleep(2.0)
-        self.hw_press("enter")
+        self.hw_press("enter")  #识别到蓝图后enter进入蓝图
+        time.sleep(1.0)
+        self.hw_press("enter")  #点击单人比赛方式
         time.sleep(2.0)
 
         pos_target = self.find_skill_car_with_like_tag(
@@ -1888,7 +1931,16 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
         self.game_click(pos_target)
         time.sleep(0.5)
         self.hw_press("enter")
-        time.sleep(4.0)
+        start_ready = self.wait_for_any_image_gray(
+            ["start.png", "startw.png"],
+            region=self.regions["左下"],
+            threshold=0.75,
+            timeout=4.0,
+            interval=0.2,
+            fast_mode=True,
+        )
+        if start_ready:
+            self.log("已提前识别到赛事起点入口，继续跑图流程。")
 
         self.log("前置完成，开始循环跑图！")
 
@@ -2232,7 +2284,7 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
             fast_mode=False
         )
         if not pos_designpaint:
-            self.log("[CJ] 未找到 designpaint 按钮。")
+            self.log("[CJ] 未找到设计与涂装按钮。")
             return False
 
         self.game_click(pos_designpaint)
@@ -2247,7 +2299,7 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
             fast_mode=False
         )
         if not pos_choosecar:
-            self.log("[CJ] 未看到 choosecar，尝试确认设计编辑器提示。")
+            self.log("[CJ] 未找到选车按钮。")
             self.hw_press("enter")
             time.sleep(1.5)
             pos_choosecar = self.wait_for_any_image_gray(
@@ -2354,29 +2406,27 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
 
         pos_buycar = self.wait_for_buy_and_used_car(timeout=15)
         if not pos_buycar:
-            self.log("未识别到 购买新车与二手车")
+            self.log("未识别到【购买新车与二手车】")
             return False
 
         self.game_click(pos_buycar)
         time.sleep(0.8)
         self.hw_press("enter")
-        time.sleep(5)
-
 
         pos_bs = self.wait_for_any_image_gray(
             ["buyandsell-w.png", "buyandsell-b.png"],
-            region=self.regions["左"],
-            threshold=0.75,
-            timeout=60,
-            interval=0.5,
-            fast_mode=True
+            region=self.regions["全界面"],
+            threshold=0.70,
+            timeout=15,
+            interval=0.3,
+            fast_mode=False,
+            invert_mode=True,
         )
         if not pos_bs:
-            self.log("未找到购买与出售")
+            self.log("嘉年华内信息未成功识别")
             return False
 
-        self.game_click(pos_bs)
-        time.sleep(1.0)
+        # 进入嘉年华界面后
         self.hw_press("pagedown", delay=0.15)
         self.log("进入车辆界面...")
         time.sleep(0.5)
@@ -2398,7 +2448,6 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
             if pos_rc:
                 self.log("点击上车")
                 self.game_click(pos_rc)
-                time.sleep(2.0)  # 点击后等待上车加载
             else:
                 self.log("回车上车")
                 self.hw_press("enter")
@@ -2406,15 +2455,76 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
                 self.hw_press("enter")
                 time.sleep(1.0)
 
+            pos_spraycar = self.wait_for_image_gray(
+                "spraycar-w.png",
+                region=self.regions["左"],
+                threshold=0.68,
+                timeout=4.0,
+                interval=0.2,
+                fast_mode=False,
+                invert_mode=True,
+            )
+            if not pos_spraycar:
+                self.log("上车后未确认进入喷漆车辆页面")
+                return False
+
+            self.log("已确认喷漆车辆页面，按 ESC 返回车辆菜单...")
+            self.hw_press("esc")
+
+            pos_vehicle_menu = self.wait_for_image_gray(
+                "designpaint-w.png",
+                region=self.regions["左"],
+                threshold=0.68,
+                timeout=2.0,
+                interval=0.15,
+                fast_mode=False,
+                invert_mode=True,
+            )
+            if not pos_vehicle_menu:
+                pos_vehicle_menu = self.wait_for_image_gray(
+                    "designpaint-b.png",
+                    region=self.regions["左"],
+                    threshold=0.68,
+                    timeout=1.0,
+                    interval=0.15,
+                    fast_mode=False,
+                    invert_mode=True,
+                )
+            if not pos_vehicle_menu:
+                self.log("ESC 后未确认返回车辆菜单")
+                return False
 
             pos_sjy = None
+            settle_deadline = time.time() + 2.0
+            while self.is_running and time.time() < settle_deadline:
+                pos_sjy = self.find_any_image_gray(
+                    ["UandT-w.png", "UandT-b.png"],
+                    region=self.regions["车辆菜单列表"],
+                    threshold=0.68,
+                    fast_mode=False,
+                    invert_mode=True,
+                )
+                if pos_sjy:
+                    break
+                time.sleep(0.15)
+
+            if not pos_sjy:
+                self.log("上车后等待升级页面出现，未命中，开始尝试恢复...")
+
             for _ in range(20):
                 if not self.is_running:
                     return False
 
-                pos_sjy = self.find_any_image_gray(["UandT-w.png", "UandT-b.png"], region=self.regions["左下"], threshold=0.68)
-                if not pos_sjy:
-                    pos_sjy = self.find_any_image_gray(["UandT-w.png", "UandT-b.png"], region=self.regions["全界面"], threshold=0.62, fast_mode=False)
+                if pos_sjy:
+                    break
+
+                pos_sjy = self.find_any_image_gray(
+                    ["UandT-w.png", "UandT-b.png"],
+                    region=self.regions["车辆菜单列表"],
+                    threshold=0.68,
+                    fast_mode=False,
+                    invert_mode=True,
+                )
                 if pos_sjy:
                     break
 
@@ -2437,10 +2547,10 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
                 fast_mode=False
             )
             if not pos_cls:
-                self.log("未找到车辆专精，可能未成功进入目标车辆升级页面或选中了非目标车辆。")
+                self.log("未找到车辆专精")
                 return False
             self.game_click(pos_cls)
-            time.sleep(1.5)
+            time.sleep(1.2)
 
             pos_exp = self.wait_for_any_image(
                 ["EXPwU.png"],
@@ -2458,6 +2568,7 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
                 self.hw_press("enter")
                 time.sleep(1.5)
 
+                spne_found = None
                 for dk in self.config["skill_dirs"]:
                     if not self.is_running:
                         return False
@@ -2465,11 +2576,20 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
                     time.sleep(0.2)
                     self.hw_press("enter")
                     time.sleep(1.2)
-
-                spne_found = self.find_image_gray("SPNE.png", region=self.regions["全界面"], threshold=0.70)
+                    spne_found = self.wait_for_image_gray(
+                        "SPNE.png",
+                        region=self.regions["全界面"],
+                        threshold=0.66,
+                        timeout=0.8,
+                        interval=0.15,
+                        fast_mode=False,
+                        invert_mode=True,
+                    )
+                    if spne_found:
+                        break
 
                 if spne_found:
-                    self.log("已无技能点或技能已点完，提前结束抽奖！")
+                    self.log("技能点不足，提前结束专精环节！")
                     time.sleep(1.0)
                     self.hw_press("enter")
                     time.sleep(0.8)
