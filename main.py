@@ -2489,53 +2489,28 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
                     interval=0.15,
                     fast_mode=False,
                     invert_mode=True,
-                )
+            )
             if not pos_vehicle_menu:
                 self.log("ESC 后未确认返回车辆菜单")
                 return False
 
-            pos_sjy = None
-            settle_deadline = time.time() + 2.0
-            while self.is_running and time.time() < settle_deadline:
-                pos_sjy = self.find_any_image_gray(
-                    ["UandT-w.png", "UandT-b.png"],
-                    region=self.regions["车辆菜单列表"],
+            menu_stable_deadline = time.time() + 0.8
+            while self.is_running and time.time() < menu_stable_deadline:
+                menu_stable = self.find_any_image_gray(
+                    ["designpaint-w.png", "designpaint-b.png"],
+                    region=self.regions["左"],
                     threshold=0.68,
                     fast_mode=False,
                     invert_mode=True,
                 )
-                if pos_sjy:
-                    break
-                time.sleep(0.15)
+                if not menu_stable:
+                    menu_stable_deadline = time.time() + 0.25
+                time.sleep(0.08)
 
-            if not pos_sjy:
-                self.log("上车后等待升级页面出现，未命中，开始尝试恢复...")
-
-            for _ in range(20):
-                if not self.is_running:
-                    return False
-
-                if pos_sjy:
-                    break
-
-                pos_sjy = self.find_any_image_gray(
-                    ["UandT-w.png", "UandT-b.png"],
-                    region=self.regions["车辆菜单列表"],
-                    threshold=0.68,
-                    fast_mode=False,
-                    invert_mode=True,
-                )
-                if pos_sjy:
-                    break
-
-                self.hw_press("esc")
-                time.sleep(0.5)
-
-            if not pos_sjy:
-                self.log("找不到升级页面")
-                return False
-
-            self.game_click(pos_sjy)
+            self.log("车辆菜单已稳定，使用方向键定位到升级与调校...")
+            self.hw_press("up", delay=0.05)
+            time.sleep(0.2)
+            self.hw_press("enter")
             time.sleep(0.5)
 
             pos_cls = self.wait_for_any_image_gray(
