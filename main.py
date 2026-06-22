@@ -201,7 +201,6 @@ DIK_CODES = {
     "f6": (0x40, False),
     "f7": (0x41, False),
     "f8": (0x42, False),
-    "f9": (0x43, False),
     "f10": (0x44, False),
     "f11": (0x57, False),
     "f12": (0x58, False),
@@ -262,6 +261,8 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
         self.ai_car_debug_last_miss_save = 0.0
         self.yolo_car_select_model = None
         self.yolo_car_select_model_path = None
+        self.yolo_car_select_model_lock = threading.Lock()
+        self.ai_model_preload_started = False
         self.race_notice_shown = False
 
         self.init_regions()
@@ -285,6 +286,7 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
         self.start_hotkey_listener()
         self.update_skill_grid()
         self.center_window()
+        self.preload_ai_model_async()
 
         self.log("免责声明：本脚本仅供 Python 自动化技术交流与学习使用。请勿用于商业盈利或破坏游戏平衡，因使用本脚本造成的账号封禁等损失，由使用者自行承担。")
         self.log("因为是个人优化开发，测试条件以及能适配的设备有限，遇到难以解决的兼容性问题，敬请谅解")
@@ -521,12 +523,11 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
         try:
             if state == "running":
                 self.lbl_run_state.configure(text="运行中", fg_color="#238636", text_color="#FFFFFF")
-                self.btn_runtime_pause.configure(state="normal", text="暂停 F9", fg_color="#F1C40F", hover_color="#D4AC0D", text_color="#111827")
                 self.btn_runtime_stop.configure(state="normal")
                 self.btn_stop.configure(text="停止任务 (F8)", fg_color="#DA3633", hover_color="#B02A37")
             elif state == "paused":
                 self.lbl_run_state.configure(text="已暂停", fg_color="#9A6700", text_color="#FFFFFF")
-                self.btn_runtime_pause.configure(state="normal", text="继续 F9", fg_color="#2EA043", hover_color="#238636", text_color="#FFFFFF")
+                self.btn_runtime_stop.configure(state="normal")
             else:
                 self.lbl_run_state.configure(text="待机", fg_color="#222B36", text_color="#C9D1D9")
                 self.lbl_runtime_task.configure(text="等待中")
@@ -535,7 +536,6 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
                 self.lbl_runtime_task_time.configure(text="00:00:00")
                 self.lbl_runtime_total_time.configure(text="00:00:00")
                 self.lbl_runtime_totals.configure(text="跑图 00:00:00 | 买车 00:00:00 | 超抽 00:00:00")
-                self.btn_runtime_pause.configure(state="disabled", text="暂停 F9", fg_color="#F1C40F", hover_color="#D4AC0D", text_color="#111827")
                 self.btn_runtime_stop.configure(state="disabled")
                 self.btn_stop.configure(text="等待指令 (F8)", fg_color="#222B36", hover_color="#2F3B4A")
         except Exception:
@@ -736,8 +736,11 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
                 self.config["ai_only"] = False
             self.yolo_car_select_model = None
             self.yolo_car_select_model_path = None
+            self.ai_model_preload_started = False
         self.save_config()
         self.log("AI assist enabled." if enabled else "AI assist disabled.")
+        if enabled:
+            self.preload_ai_model_async()
 
     def on_ai_prefer_changed(self):
         enabled = bool(self.var_ai_prefer.get())
@@ -790,19 +793,31 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
         if not model_path:
             self.log("[AISelect] model not found. Put best.pt at models/fh6_car_select_yolo.pt or update config.json ai_model_path.")
             return None
-        if self.yolo_car_select_model is not None and self.yolo_car_select_model_path == model_path:
-            return self.yolo_car_select_model
-        try:
-            from ultralytics import YOLO
-            self.yolo_car_select_model = YOLO(model_path)
-            self.yolo_car_select_model_path = model_path
-            self.log(f"[AISelect] model loaded: {model_path}")
-            return self.yolo_car_select_model
-        except Exception as e:
-            self.log(f"[AISelect] cannot load YOLO model: {e}")
-            self.yolo_car_select_model = None
-            self.yolo_car_select_model_path = None
-            return None
+        with self.yolo_car_select_model_lock:
+            if self.yolo_car_select_model is not None and self.yolo_car_select_model_path == model_path:
+                return self.yolo_car_select_model
+            try:
+                from ultralytics import YOLO
+                self.yolo_car_select_model = YOLO(model_path)
+                self.yolo_car_select_model_path = model_path
+                self.log(f"[AISelect] model loaded: {model_path}")
+                return self.yolo_car_select_model
+            except Exception as e:
+                self.log(f"[AISelect] cannot load YOLO model: {e}")
+                self.yolo_car_select_model = None
+                self.yolo_car_select_model_path = None
+                return None
+
+    def preload_ai_model_async(self):
+        if self.ai_model_preload_started or not self.config.get("ai_assist", False):
+            return
+        self.ai_model_preload_started = True
+
+        def worker():
+            self.log("[AISelect] preloading model...")
+            self.get_yolo_car_select_model()
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def resolve_ai_device(self):
         configured = str(self.config.get("ai_device", "auto")).strip().lower()
@@ -1330,7 +1345,7 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
         self.is_paused = not self.is_paused
 
         if self.is_paused:
-            self.log("⏸ 任务已暂停 (按 F9 或点击按钮恢复)")
+            self.log("⏸ 任务已暂停 (点击按钮恢复)")
             # 强制松开所有可能按住的按键，防止车自己开走或UI乱跳
             for key in ["w", "e", "y", "enter", "esc", "up", "down", "left", "right", "space", "backspace"]:
                 self.hw_key_up(key)
@@ -1354,8 +1369,6 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
             def on_press(k):
                 if k == keyboard.Key.f8:
                     self.stop_all()
-                elif k == keyboard.Key.f9:  # <--- 【新增】F9 快捷键
-                    self.toggle_pause()
                 elif k == keyboard.Key.f3:  # <--- 【新增】F3 测试找图
                     self.start_test_find_image()
 
@@ -1820,7 +1833,17 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
         self.hw_press("up")
         time.sleep(0.4)
         self.hw_press("enter")
-        time.sleep(0.8)
+        pos_share_dialog = self.wait_for_image_gray(
+            "sharecode-dialog.png",
+            region=self.regions["中间"],
+            threshold=0.72,
+            timeout=8.0,
+            interval=0.25,
+            fast_mode=False
+        )
+        if not pos_share_dialog:
+            self.log("未找到蓝图共享代码输入框")
+            return False
 
         code_text = "".join(c for c in self.entry_share.get() if c.isdigit())
         for char in code_text:
