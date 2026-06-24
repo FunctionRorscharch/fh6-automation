@@ -291,8 +291,6 @@ def setup_ui(bot):
     bot.entry_race_timeout = entry(bot.global_settings_frame, width=68, height=30)
     bot.entry_race_timeout.insert(0, str(bot.config.get("race_timeout", 300)))
     bot.entry_race_timeout.pack(side="left", padx=(0, 16))
-    bot.btn_test_boot = button(bot.global_settings_frame, "测试启动", bot.start_test_boot, width=82, height=30)
-    bot.btn_test_boot.pack(side="right", padx=(0, 12))
     bot.sw_diagnostic_mode = ctk.CTkSwitch(
         bot.global_settings_frame,
         text="诊断记录",
@@ -301,7 +299,7 @@ def setup_ui(bot):
         progress_color=colors["blue"],
         font=font_small,
     )
-    bot.sw_diagnostic_mode.pack(side="right", padx=(0, 10))
+    bot.sw_diagnostic_mode.pack(side="right", padx=(0, 12))
 
     bot.runtime_frame = card(bot.main_container, height=66, fg_color="#111112")
     bot.runtime_frame.pack(fill="x", pady=(10, 0))

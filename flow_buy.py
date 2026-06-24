@@ -107,7 +107,7 @@ def logic_buy_car(self, target_count):
         self,
         "consumablecar.png",
         region=self.regions["全界面"],
-        threshold=0.90,
+        threshold=0.82,
         timeout=8,
         interval=0.3,
         fast_mode=False,
