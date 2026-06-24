@@ -100,9 +100,9 @@ def logic_race(self, target_count):
         return self.abort_invalid_blueprint_and_back_to_roam()
 
     self.hw_press("enter")
-    time.sleep(1.0)
+    time.sleep(1.5)
     self.hw_press("enter")
-    time.sleep(2.0)
+    time.sleep(1.8)
 
     pos_target = self.find_skill_car_with_like_tag(
         region=self.regions["全界面"],
