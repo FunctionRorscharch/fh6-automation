@@ -3,6 +3,8 @@ import threading
 import time
 import cv2
 import numpy as np
+
+from recognition_config import get_recognition_profile
 from app_resources import get_app_dir
 
 def resolve_ai_model_path(self):
@@ -395,13 +397,14 @@ def cleanup_recent_template_car_miss(self, root, keep_seconds=12.0):
         pass
 
 def enter_design_paint_choose_car(self):
+    profile = get_recognition_profile(self, "cj.designpaint")
     pos_designpaint = self.wait_for_any_image_gray(
         ["designpaint-w.png", "designpaint-b.png"],
         region=self.regions["全界面"],
-        threshold=0.62,
-        timeout=10,
-        interval=0.25,
-        fast_mode=False
+        threshold=profile["threshold"],
+        timeout=profile["timeout"],
+        interval=profile["interval"],
+        fast_mode=profile["fast_mode"]
     )
     if not pos_designpaint:
         self.log("[CJ] 未找到设计与涂装按钮。")
@@ -410,25 +413,27 @@ def enter_design_paint_choose_car(self):
     self.game_click(pos_designpaint)
     time.sleep(1.0)
 
+    profile = get_recognition_profile(self, "cj.choosecar_quick")
     pos_choosecar = self.wait_for_any_image_gray(
         ["choosecar.png", "choosecar-b.png"],
         region=self.regions["全界面"],
-        threshold=0.62,
-        timeout=2,
-        interval=0.25,
-        fast_mode=False
+        threshold=profile["threshold"],
+        timeout=profile["timeout"],
+        interval=profile["interval"],
+        fast_mode=profile["fast_mode"]
     )
     if not pos_choosecar:
         self.log("[CJ] 未找到选车按钮。")
         self.hw_press("enter")
         time.sleep(1.5)
+        profile = get_recognition_profile(self, "cj.choosecar_retry")
         pos_choosecar = self.wait_for_any_image_gray(
             ["choosecar.png", "choosecar-b.png"],
             region=self.regions["全界面"],
-            threshold=0.62,
-            timeout=10,
-            interval=0.25,
-            fast_mode=False
+            threshold=profile["threshold"],
+            timeout=profile["timeout"],
+            interval=profile["interval"],
+            fast_mode=profile["fast_mode"]
         )
     if not pos_choosecar:
         self.log("[CJ] 未找到 choosecar 按钮。")
@@ -443,6 +448,7 @@ def select_new_consumable_car_from_list(self):
     time.sleep(1.0)
 
     brand_pos = None
+    profile = get_recognition_profile(self, "cj.ccbrand")
     for _ in range(30):
         if not self.is_running:
             return False
@@ -450,10 +456,10 @@ def select_new_consumable_car_from_list(self):
         brand_pos = self.wait_for_any_image_gray(
             ["CCbrand.png"],
             region=self.regions["全界面"],
-            threshold=0.75,
-            timeout=0.8,
-            interval=0.2,
-            fast_mode=True
+            threshold=profile["threshold"],
+            timeout=profile["timeout"],
+            interval=profile["interval"],
+            fast_mode=profile["fast_mode"]
         )
         if brand_pos:
             break
@@ -539,14 +545,15 @@ def logic_super_wheelspin(self, target_count):
     time.sleep(0.8)
     self.hw_press("enter")
 
+    profile = get_recognition_profile(self, "cj.buyandsell_landing")
     pos_bs = self.wait_for_any_image_gray(
         ["buyandsell-w.png", "buyandsell-b.png"],
         region=self.regions["全界面"],
-        threshold=0.70,
-        timeout=15,
-        interval=0.3,
-        fast_mode=False,
-        invert_mode=True,
+        threshold=profile["threshold"],
+        timeout=profile["timeout"],
+        interval=profile["interval"],
+        fast_mode=profile["fast_mode"],
+        invert_mode=profile["invert_mode"],
     )
     if not pos_bs:
         self.log("嘉年华内信息未成功识别")
@@ -564,31 +571,47 @@ def logic_super_wheelspin(self, target_count):
         if not self.enter_design_paint_choose_car():
             return False
         if not self.select_new_consumable_car_from_list():
-            return False
-        time.sleep(1.2)
-        self.log("尝试寻找'上车'按钮...")
+            return False  #这一步只会选中而不会点击
+        time.sleep(1.0)
+        self.log("准备上车")
+        time.sleep(0.2)
+        self.hw_press("enter")
+        time.sleep(1.0)
+        self.hw_press("enter")
+        time.sleep(1.0)
 
-        pos_rc = None
-        pos_rc = self.wait_for_image_gray("rc.png", region=self.regions["全界面"], threshold=0.70, timeout=0.5, interval=0.1, fast_mode=True)
+        # self.log("尝试寻找'上车'按钮...")
 
-        if pos_rc:
-            self.log("点击上车")
-            self.game_click(pos_rc)
-        else:
-            self.log("回车上车")
-            self.hw_press("enter")
-            time.sleep(1.0)
-            self.hw_press("enter")
-            time.sleep(1.0)
+        # profile = get_recognition_profile(self, "cj.rc")
+        # pos_rc = None
+        # pos_rc = self.wait_for_image_gray(
+        #     "rc.png",
+        #     region=self.regions["全界面"],
+        #     threshold=profile["threshold"],
+        #     timeout=profile["timeout"],
+        #     interval=profile["interval"],
+        #     fast_mode=profile["fast_mode"],
+        # )
 
+        # if pos_rc:
+        #     self.log("点击上车")
+        #     self.game_click(pos_rc)
+        # else:
+        #     self.log("回车上车")
+        #     self.hw_press("enter")
+        #     time.sleep(1.0)
+        #     self.hw_press("enter")
+        #     time.sleep(1.0)
+
+        profile = get_recognition_profile(self, "cj.spraycar")
         pos_spraycar = self.wait_for_image_gray(
             "spraycar-w.png",
             region=self.regions["左"],
-            threshold=0.68,
-            timeout=4.0,
-            interval=0.2,
-            fast_mode=False,
-            invert_mode=True,
+            threshold=profile["threshold"],
+            timeout=profile["timeout"],
+            interval=profile["interval"],
+            fast_mode=profile["fast_mode"],
+            invert_mode=profile["invert_mode"],
         )
         if not pos_spraycar:
             self.log("上车后未确认进入喷漆车辆页面")
@@ -597,24 +620,26 @@ def logic_super_wheelspin(self, target_count):
         self.log("已确认喷漆车辆页面，按 ESC 返回车辆菜单...")
         self.hw_press("esc")
 
+        profile = get_recognition_profile(self, "cj.vehicle_menu")
         pos_vehicle_menu = self.wait_for_image_gray(
             "designpaint-w.png",
             region=self.regions["左"],
-            threshold=0.68,
-            timeout=2.0,
-            interval=0.15,
-            fast_mode=False,
-            invert_mode=True,
+            threshold=profile["threshold"],
+            timeout=profile["timeout"],
+            interval=profile["interval"],
+            fast_mode=profile["fast_mode"],
+            invert_mode=profile["invert_mode"],
         )
         if not pos_vehicle_menu:
+            profile = get_recognition_profile(self, "cj.vehicle_menu_retry")
             pos_vehicle_menu = self.wait_for_image_gray(
                 "designpaint-b.png",
                 region=self.regions["左"],
-                threshold=0.68,
-                timeout=1.0,
-                interval=0.15,
-                fast_mode=False,
-                invert_mode=True,
+                threshold=profile["threshold"],
+                timeout=profile["timeout"],
+                interval=profile["interval"],
+                fast_mode=profile["fast_mode"],
+                invert_mode=profile["invert_mode"],
         )
         if not pos_vehicle_menu:
             self.log("ESC 后未确认返回车辆菜单")
@@ -622,12 +647,13 @@ def logic_super_wheelspin(self, target_count):
 
         menu_stable_deadline = time.time() + 0.8
         while self.is_running and time.time() < menu_stable_deadline:
+            profile = get_recognition_profile(self, "cj.vehicle_menu_stable")
             menu_stable = self.find_any_image_gray(
                 ["designpaint-w.png", "designpaint-b.png"],
                 region=self.regions["左"],
-                threshold=0.68,
-                fast_mode=False,
-                invert_mode=True,
+                threshold=profile["threshold"],
+                fast_mode=profile["fast_mode"],
+                invert_mode=profile["invert_mode"],
             )
             if not menu_stable:
                 menu_stable_deadline = time.time() + 0.25
@@ -639,52 +665,55 @@ def logic_super_wheelspin(self, target_count):
         self.hw_press("enter")
         time.sleep(0.5)
 
+        profile = get_recognition_profile(self, "cj.cls")
         pos_cls = self.wait_for_any_image_gray(
             ["clsldcnw.png", "clsldcnb.png"],
             region=self.regions["全界面"],
-            threshold=0.62,
-            timeout=8,
-            interval=0.25,
-            fast_mode=False
+            threshold=profile["threshold"],
+            timeout=profile["timeout"],
+            interval=profile["interval"],
+            fast_mode=profile["fast_mode"]
         )
         if not pos_cls:
             self.log("未找到车辆专精")
             return False
         self.game_click(pos_cls)
-        time.sleep(1.2)
+        time.sleep(0.8)
 
+        profile = get_recognition_profile(self, "cj.exp")
         pos_exp = self.wait_for_any_image(
             ["EXPwU.png"],
             region=self.regions["左"],
-            threshold=0.75,
-            timeout=1.2,
-            interval=0.3,
-            fast_mode=True
+            threshold=profile["threshold"],
+            timeout=profile["timeout"],
+            interval=profile["interval"],
+            fast_mode=profile["fast_mode"]
         )
 
         if pos_exp:
             self.log("该车辆技能已点过，跳过计数")
         else:
-            time.sleep(1.0)
+            time.sleep(0.6)
             self.hw_press("enter")
-            time.sleep(1.5)
+            time.sleep(1.0)
 
             spne_found = None
             for dk in self.config["skill_dirs"]:
                 if not self.is_running:
                     return False
                 self.hw_press(dk)
-                time.sleep(0.2)
+                time.sleep(0.12)
                 self.hw_press("enter")
-                time.sleep(0.8)
+                time.sleep(0.5)
+                profile = get_recognition_profile(self, "cj.spne")
                 spne_found = self.wait_for_image_gray(
                     "SPNE.png",
                     region=self.regions["全界面"],
-                    threshold=0.66,
-                    timeout=0.8,
-                    interval=0.15,
-                    fast_mode=False,
-                    invert_mode=True,
+                    threshold=profile["threshold"],
+                    timeout=profile["timeout"],
+                    interval=profile["interval"],
+                    fast_mode=profile["fast_mode"],
+                    invert_mode=profile["invert_mode"],
                 )
                 if spne_found:
                     break
@@ -715,9 +744,9 @@ def logic_super_wheelspin(self, target_count):
             return False
     else:
         self.hw_press("esc")
-        time.sleep(0.8)
+        time.sleep(0.7)
         self.hw_press("esc")
-        time.sleep(0.8)
+        time.sleep(0.7)
     return True
 
 

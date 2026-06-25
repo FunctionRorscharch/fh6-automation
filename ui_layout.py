@@ -293,7 +293,7 @@ def setup_ui(bot):
     bot.entry_race_timeout.pack(side="left", padx=(0, 16))
     bot.sw_diagnostic_mode = ctk.CTkSwitch(
         bot.global_settings_frame,
-        text="诊断记录",
+        text="诊断模式",
         variable=bot.var_diagnostic_mode,
         command=bot.on_diagnostic_mode_changed,
         progress_color=colors["blue"],

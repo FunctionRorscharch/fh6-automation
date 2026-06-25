@@ -1,6 +1,7 @@
 import time
 
 from flow_common import click_if_found, press_with_pause, wait_image_or_log
+from recognition_config import get_recognition_profile
 
 
 def logic_buy_car(self, target_count):
@@ -26,14 +27,15 @@ def logic_buy_car(self, target_count):
     if not self.enter_menu():
         return False
 
+    profile = get_recognition_profile(self, "buy.collectionjournal")
     pos_collectionjournal = wait_image_or_log(
         self,
         "collectionjournal.png",
         region=self.regions["左"],
-        threshold=0.7,
-        timeout=30,
-        interval=0.4,
-        fast_mode=True,
+        threshold=profile["threshold"],
+        timeout=profile["timeout"],
+        interval=profile["interval"],
+        fast_mode=profile["fast_mode"],
         not_found_message="未找到收集簿",
         click=True,
         click_double=True,
@@ -43,14 +45,15 @@ def logic_buy_car(self, target_count):
     if not pos_collectionjournal:
         return False
 
+    profile = get_recognition_profile(self, "buy.masterexplorer")
     pos_masterexplorer = wait_image_or_log(
         self,
         "masterexplorer.png",
         region=self.regions["全界面"],
-        threshold=0.75,
-        timeout=30,
-        interval=0.4,
-        fast_mode=True,
+        threshold=profile["threshold"],
+        timeout=profile["timeout"],
+        interval=profile["interval"],
+        fast_mode=profile["fast_mode"],
         not_found_message="未找到探索",
         click=True,
         click_double=True,
@@ -59,14 +62,15 @@ def logic_buy_car(self, target_count):
     if not pos_masterexplorer:
         return False
 
+    profile = get_recognition_profile(self, "buy.carcollection")
     pos_carcollection = wait_image_or_log(
         self,
         "carcollection.png",
         region=self.regions["全界面"],
-        threshold=0.75,
-        timeout=30,
-        interval=0.3,
-        fast_mode=True,
+        threshold=profile["threshold"],
+        timeout=profile["timeout"],
+        interval=profile["interval"],
+        fast_mode=profile["fast_mode"],
         not_found_message="未找到车辆收集",
         click=True,
         click_double=True,
@@ -79,6 +83,7 @@ def logic_buy_car(self, target_count):
     press_with_pause(self, "backspace", after=0.5)
 
     brand_pos = None
+    profile = get_recognition_profile(self, "buy.ccbrand")
     for _ in range(5):
         if not self.is_running:
             return False
@@ -86,10 +91,10 @@ def logic_buy_car(self, target_count):
         brand_pos = self.wait_for_any_image_gray(
             ["CCbrand.png"],
             region=self.regions["全界面"],
-            threshold=0.75,
-            timeout=0.8,
-            interval=0.2,
-            fast_mode=True,
+            threshold=profile["threshold"],
+            timeout=profile["timeout"],
+            interval=profile["interval"],
+            fast_mode=profile["fast_mode"],
         )
         if brand_pos:
             break
@@ -103,14 +108,15 @@ def logic_buy_car(self, target_count):
     click_if_found(self, brand_pos, post_delay=0.8)
     press_with_pause(self, "down", after=0.4)
 
+    profile = get_recognition_profile(self, "buy.consumablecar")
     pos_22b = wait_image_or_log(
         self,
         "consumablecar.png",
         region=self.regions["全界面"],
-        threshold=0.82,
-        timeout=8,
-        interval=0.3,
-        fast_mode=False,
+        threshold=profile["threshold"],
+        timeout=profile["timeout"],
+        interval=profile["interval"],
+        fast_mode=profile["fast_mode"],
         not_found_message="未找到消耗品车辆",
         click=True,
         click_double=True,

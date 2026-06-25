@@ -637,6 +637,7 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
             "ai_only": False,
             "ai_auto_capture": False,
             "diagnostic_mode": False,
+            "recognition_profiles": {},
             "smart_page": False,
             "ai_model_path": "models/fh6_car_select_yolo.pt"
         }
@@ -906,9 +907,83 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
 
         self.config["skill_dirs"] = valid_dirs
 
-    def log(self, message):
+    def infer_log_level(self, message, level=None):
+        if level:
+            return str(level).upper()
+
+        text = str(message or "")
+        upper_text = text.upper()
+        if upper_text.startswith("[ERROR]") or "致命" in text or "异常" in text:
+            return "ERROR"
+        if upper_text.startswith("[WARN]") or "警告" in text or "失败" in text or "未找到" in text:
+            return "WARN"
+        if upper_text.startswith("[DEBUG]") or "[Calibration]" in text or "[Diagnostic]" in text:
+            return "DEBUG"
+        return "INFO"
+
+    def record_diagnostic_log(self, level, message, ts=None):
+        trace = getattr(self, "diagnostic_trace", None)
+        if not trace:
+            return
+
+        event = {
+            "ts": ts or time.strftime("%Y-%m-%d %H:%M:%S"),
+            "kind": "log",
+            "level": str(level or "INFO").upper(),
+            "message": str(message or ""),
+        }
+        try:
+            with open(trace["logs_path"], "a", encoding="utf-8-sig") as f:
+                f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        except Exception:
+            return
+
+        trace["log_count"] += 1
+        trace["log_levels"][event["level"]] = trace["log_levels"].get(event["level"], 0) + 1
+
+    def capture_diagnostic_snapshot(self, name, *, region=None, image_bgr=None, reason=None, level="WARN", meta=None, dedupe_key=None):
+        trace = getattr(self, "diagnostic_trace", None)
+        if not trace:
+            return None
+
+        capture_key = dedupe_key or name
+        if capture_key in trace["capture_keys"]:
+            return None
+
+        try:
+            frame = image_bgr if image_bgr is not None else self.capture_region(region)
+        except Exception:
+            return None
+        if frame is None:
+            return None
+
+        safe_name = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(name or "capture"))
+        capture_index = trace["capture_count"] + 1
+        filename = f"{capture_index:03d}_{safe_name}.png"
+        file_path = os.path.join(trace["captures_dir"], filename)
+        if not self.write_debug_image(file_path, frame):
+            return None
+
+        trace["capture_count"] = capture_index
+        trace["capture_keys"].add(capture_key)
+        capture_event = {
+            "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "kind": "capture",
+            "name": name,
+            "level": str(level or "WARN").upper(),
+            "reason": reason,
+            "file": file_path,
+            "region": region,
+            "meta": meta or {},
+        }
+        trace["captures"].append(capture_event)
+        return file_path
+
+    def log(self, message, level=None):
+        resolved_level = self.infer_log_level(message, level=level)
         curr_time = time.strftime("%H:%M:%S")
-        full_msg = f"[{curr_time}] {message}"
+        full_msg = f"[{curr_time}] {message}" if resolved_level == "INFO" else f"[{curr_time}] [{resolved_level}] {message}"
+        self.record_diagnostic_log(resolved_level, message, ts=time.strftime("%Y-%m-%d %H:%M:%S"))
 
         def write_ui():
             try:
@@ -1014,16 +1089,26 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
 
         report_dir = self.create_diagnostic_report_dir()
         events_path = os.path.join(report_dir, "events.jsonl")
+        logs_path = os.path.join(report_dir, "logs.jsonl")
+        captures_dir = os.path.join(report_dir, "captures")
+        os.makedirs(captures_dir, exist_ok=True)
         self.diagnostic_trace = {
             "session_name": session_name,
             "report_dir": report_dir,
             "events_path": events_path,
+            "logs_path": logs_path,
+            "captures_dir": captures_dir,
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "event_count": 0,
             "hit_count": 0,
             "miss_count": 0,
+            "log_count": 0,
+            "log_levels": {},
+            "capture_count": 0,
+            "capture_keys": set(),
+            "captures": [],
         }
-        self.log(f"[Diagnostic] 已开启诊断记录: {report_dir}")
+        self.log(f"[Diagnostic] 已开启诊断记录: {report_dir}", level="DEBUG")
 
     def record_diagnostic_match(
         self,
@@ -1092,9 +1177,13 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
             "event_count": trace["event_count"],
             "hit_count": trace["hit_count"],
             "miss_count": trace["miss_count"],
+            "log_count": trace["log_count"],
+            "log_levels": dict(trace["log_levels"]),
+            "capture_count": trace["capture_count"],
             "window_info": dict(getattr(self, "match_window_info", {}) or {}),
             "calibration": dict(getattr(self, "match_calibration", {}) or {}),
             "events_path": trace["events_path"],
+            "logs_path": trace["logs_path"],
         }
 
         try:
@@ -1105,6 +1194,7 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
 
         try:
             events = []
+            logs = []
             if os.path.exists(trace["events_path"]):
                 with open(trace["events_path"], "r", encoding="utf-8") as f:
                     for line in f:
@@ -1113,6 +1203,17 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
                             continue
                         try:
                             events.append(json.loads(line))
+                        except Exception:
+                            continue
+
+            if os.path.exists(trace["logs_path"]):
+                with open(trace["logs_path"], "r", encoding="utf-8-sig") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            logs.append(json.loads(line))
                         except Exception:
                             continue
 
@@ -1129,6 +1230,8 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
                 f"- 总识图次数: {summary['event_count']}",
                 f"- 命中次数: {summary['hit_count']}",
                 f"- 未命中次数: {summary['miss_count']}",
+                f"- 日志条数: {summary['log_count']}",
+                f"- 失败截图数: {summary['capture_count']}",
                 "",
                 "二、窗口信息",
                 f"- 窗口坐标: ({summary['window_info'].get('x', '-')}, {summary['window_info'].get('y', '-')})",
@@ -1145,8 +1248,31 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
                 f"- 校准锚点: {summary['calibration'].get('anchor', '-')}",
                 f"- 锚点分数: {summary['calibration'].get('anchor_score', '-')}",
                 "",
-                "四、识图流水（按真实运行顺序）",
+                "四、日志等级统计",
+                f"- INFO: {summary['log_levels'].get('INFO', 0)}",
+                f"- WARN: {summary['log_levels'].get('WARN', 0)}",
+                f"- ERROR: {summary['log_levels'].get('ERROR', 0)}",
+                f"- DEBUG: {summary['log_levels'].get('DEBUG', 0)}",
+                "",
+                "五、关键失败截图",
             ]
+
+            if trace["captures"]:
+                for idx, capture in enumerate(trace["captures"], 1):
+                    lines.append(
+                        f"{idx}. [{capture.get('level', '-')}] {capture.get('name', '-')} -> {os.path.basename(capture.get('file', '-'))}"
+                    )
+                    if capture.get("reason"):
+                        lines.append(f"   - 原因: {capture['reason']}")
+                    if capture.get("meta"):
+                        lines.append(f"   - 补充信息: {capture['meta']}")
+            else:
+                lines.append("- 本次没有生成失败截图。")
+
+            lines.extend([
+                "",
+                "六、识图流水（按真实运行顺序）",
+            ])
 
             for idx, event in enumerate(events, 1):
                 lines.append(
@@ -1168,16 +1294,25 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
                     lines.append(f"   - 补充信息: {event['extra']}")
                 lines.append("")
 
+            lines.append("七、运行日志（玩家可直接阅读）")
+            if logs:
+                for idx, log_event in enumerate(logs, 1):
+                    lines.append(
+                        f"{idx}. [{log_event.get('ts', '-')}] [{log_event.get('level', 'INFO')}] {log_event.get('message', '')}"
+                    )
+            else:
+                lines.append("- 无日志记录。")
+
             report_txt = os.path.join(trace["report_dir"], "report.txt")
             with open(report_txt, "w", encoding="utf-8-sig") as f:
                 f.write("\n".join(lines))
         except Exception as e:
-            self.log(f"[Diagnostic] 生成文本诊断报告失败: {e}")
+            self.log(f"[Diagnostic] 生成文本诊断报告失败: {e}", level="ERROR")
 
         self.log(
             f"[Diagnostic] 诊断记录已保存: {trace['report_dir']} "
             f"(hits={trace['hit_count']}, misses={trace['miss_count']})"
-        )
+        , level="DEBUG")
         self.diagnostic_trace = None
 
     def resolve_ai_model_path(self):
