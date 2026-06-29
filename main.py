@@ -60,6 +60,7 @@ from image_matcher import ImageMatcherMixin
 from flow_buy import logic_buy_car as flow_logic_buy_car
 from flow_cj import (
     cleanup_recent_template_car_miss as flow_cleanup_recent_template_car_miss,
+    confirm_vehicle_menu_after_spray as flow_confirm_vehicle_menu_after_spray,
     enter_design_paint_choose_car as flow_enter_design_paint_choose_car,
     find_new_consumable_car_with_ai as flow_find_new_consumable_car_with_ai,
     find_yolo_car_candidate as flow_find_yolo_car_candidate,
@@ -627,6 +628,7 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
             "next_3": 1,
             "global_loops": 10,
             "skill_dirs": ["right", "up", "up", "up", "left"],
+            "skill_names": ["吸引眼球", "掀桌子", "横冲直撞", "乐趣开始", "拉力赛传奇", "抽奖精灵"],
             "share_code": "890169683",
             "cr_amount": 0,
             "auto_restart": False,
@@ -2008,6 +2010,8 @@ class FH_UltimateBot(ImageMatcherMixin, ctk.CTk):
         return flow_enter_design_paint_choose_car(self)
     def select_new_consumable_car_from_list(self):
         return flow_select_new_consumable_car_from_list(self)
+    def confirm_vehicle_menu_after_spray(self):
+        return flow_confirm_vehicle_menu_after_spray(self)
     def logic_super_wheelspin(self, target_count):
         return flow_logic_super_wheelspin(self, target_count)
 if __name__ == "__main__":

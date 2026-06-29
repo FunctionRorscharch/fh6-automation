@@ -7,6 +7,8 @@ import numpy as np
 from recognition_config import get_recognition_profile
 from app_resources import get_app_dir
 
+os.environ.setdefault("YOLO_CONFIG_DIR", get_app_dir())
+
 def resolve_ai_model_path(self):
     candidates = []
     configured = str(self.config.get("ai_model_path", "")).strip()
@@ -473,6 +475,7 @@ def select_new_consumable_car_from_list(self):
 
     self.game_click(brand_pos)
     time.sleep(1.0)
+
     smart_page_enabled = bool(self.config.get("smart_page", False))
     jump_pages = max(0, self.memory_car_page - 1) if smart_page_enabled else 0
 
@@ -519,6 +522,43 @@ def select_new_consumable_car_from_list(self):
 
     time.sleep(1.2)
     return True
+
+def confirm_vehicle_menu_after_spray(self):
+    profile = get_recognition_profile(self, "cj.vehicle_menu")
+    deadline = time.time() + float(profile.get("timeout", 12.0))
+    next_esc_at = time.time() + 6.0
+    esc_count = 1
+
+    while self.is_running and time.time() < deadline:
+        pos_vehicle_menu = self.find_any_image_gray(
+            ["designpaint-w.png", "designpaint-b.png"],
+            region=self.regions["左"],
+            threshold=profile["threshold"],
+            fast_mode=profile["fast_mode"],
+            invert_mode=profile["invert_mode"],
+        )
+        if pos_vehicle_menu:
+            return True
+
+        pos_uat = self.find_any_image_gray(
+            ["UandT-w.png", "UandT-b.png"],
+            region=self.regions["全界面"],
+            threshold=0.62,
+            fast_mode=False,
+            invert_mode=True,
+        )
+        if pos_uat:
+            return True
+
+        if time.time() >= next_esc_at and esc_count < 3:
+            esc_count += 1
+            self.log(f"仍未确认车辆菜单，补按 ESC ({esc_count}/3)...")
+            self.hw_press("esc")
+            next_esc_at = time.time() + 4.0
+
+        time.sleep(profile["interval"])
+
+    return False
 
 def logic_super_wheelspin(self, target_count):
     if self.cj_counter >= target_count:
@@ -620,28 +660,7 @@ def logic_super_wheelspin(self, target_count):
         self.log("已确认喷漆车辆页面，按 ESC 返回车辆菜单...")
         self.hw_press("esc")
 
-        profile = get_recognition_profile(self, "cj.vehicle_menu")
-        pos_vehicle_menu = self.wait_for_image_gray(
-            "designpaint-w.png",
-            region=self.regions["左"],
-            threshold=profile["threshold"],
-            timeout=profile["timeout"],
-            interval=profile["interval"],
-            fast_mode=profile["fast_mode"],
-            invert_mode=profile["invert_mode"],
-        )
-        if not pos_vehicle_menu:
-            profile = get_recognition_profile(self, "cj.vehicle_menu_retry")
-            pos_vehicle_menu = self.wait_for_image_gray(
-                "designpaint-b.png",
-                region=self.regions["左"],
-                threshold=profile["threshold"],
-                timeout=profile["timeout"],
-                interval=profile["interval"],
-                fast_mode=profile["fast_mode"],
-                invert_mode=profile["invert_mode"],
-        )
-        if not pos_vehicle_menu:
+        if not self.confirm_vehicle_menu_after_spray():
             self.log("ESC 后未确认返回车辆菜单")
             return False
 
@@ -660,6 +679,7 @@ def logic_super_wheelspin(self, target_count):
             time.sleep(0.08)
 
         self.log("车辆菜单已稳定，使用方向键定位到升级与调校...")
+        time.sleep(1.0)
         self.hw_press("up", delay=0.05)
         time.sleep(0.2)
         self.hw_press("enter")
@@ -698,9 +718,12 @@ def logic_super_wheelspin(self, target_count):
             time.sleep(1.0)
 
             spne_found = None
-            for dk in self.config["skill_dirs"]:
+            skill_names = self.config.get("skill_names", [])
+            for idx, dk in enumerate(self.config["skill_dirs"]):
                 if not self.is_running:
                     return False
+                if idx < len(skill_names):
+                    self.log(f"选择车辆专精技能：{skill_names[idx]}")
                 self.hw_press(dk)
                 time.sleep(0.12)
                 self.hw_press("enter")

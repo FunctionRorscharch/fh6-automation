@@ -16,6 +16,14 @@
         "up",
         "left"
     ],
+    "skill_names": [
+        "吸引眼球",
+        "掀桌子",
+        "横冲直撞",
+        "乐趣开始",
+        "拉力赛传奇",
+        "抽奖精灵"
+    ],
     "share_code": "890169683",
     "auto_restart": false,
     "restart_cmd": "start steam://run/2483190",

@@ -34,6 +34,7 @@ screenshot/
 
 # Runtime caches and temporary folders
 cache/
+Ultralytics/
 obf_temp/
 other/
 oldversion/
