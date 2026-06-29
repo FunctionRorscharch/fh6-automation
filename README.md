@@ -27,6 +27,16 @@ FH6Auto 是一个基于 Python、图像识别和输入自动化的 FH6 本地辅
 - 根据输入的CR，限制买车数量，妈妈再也不怕我的票券被脚本用掉买斯巴鲁了。
 - 为了xgp哥们，蓝图输入框的等待延时保留，还加长了，现在有足足4秒。
 
+## 本仓库维护改动
+
+- 超级抽奖返回车辆菜单更稳：喷漆车辆页面按 `ESC` 后会等待更久，并用多个菜单锚点确认是否已返回。
+- 进入“升级与调校”前增加 1 秒缓冲，减少车辆菜单焦点未稳定导致的误操作。
+- 车辆专精入口识别更严格：`cj.cls` 阈值提高到 `0.72`，降低误匹配概率。
+- 专精点技能时会在日志中输出技能名，便于排查当前点到哪一步。
+- AI 依赖可选安装；未放入模型文件时不要开启 `纯AI`，否则会因为找不到模型而无法选车。
+- Ultralytics 配置默认写到项目目录，避免写入系统用户目录时出现权限问题。
+- 新增 `tools/monitor_runtime.ps1`，可用于记录游戏和工具窗口是否仍在响应。
+
 ## 历史版本演进，这下面的都是ai写的可以不看，看上面我写的就行了
 
 ### v3.2
@@ -106,21 +116,55 @@ FH6Auto 是一个基于 Python、图像识别和输入自动化的 FH6 本地辅
 - `F8`：停止任务
 - `F3`：测试找图流程
 
-## 从源码运行
+## 第一次使用
 
-标准环境：
+1. 确认游戏环境：
+
+   - Windows
+   - 游戏语言：简体中文
+   - 输入法：英文键盘
+   - 建议关闭 HDR
+   - 运行时保持游戏在前台
+
+2. 安装普通依赖：
+
+   ```powershell
+   cd C:\Users\46353\OneDrive\Documents\fh6
+   python -m venv .venv
+   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+   ```
+
+3. 启动工具：
+
+   ```powershell
+   .\.venv\Scripts\python.exe main.py
+   ```
+
+4. 按需修改本地配置：
+
+   ```text
+   config.json
+   ```
+
+   常用项：
+
+   - `smart_page`：超级抽奖选车页码记忆，第一次找到车后，后续会尝试跳到记住的页附近。
+   - `ai_assist`：开启 AI 辅助选车。
+   - `ai_only`：只使用 AI，不回退模板；没有模型文件时不要开启。
+
+## 日常启动
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\activate
-python -m pip install -r requirements.txt
-python main.py
+cd C:\Users\46353\OneDrive\Documents\fh6
+.\.venv\Scripts\python.exe main.py
 ```
 
-AI 环境：
+## AI 可选环境
+
+普通使用不需要安装 AI 依赖。如果需要 AI 辅助选车，再执行：
 
 ```powershell
-python -m pip install -r requirements-ai.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt
 ```
 
 模型文件默认路径：
@@ -128,6 +172,14 @@ python -m pip install -r requirements-ai.txt
 ```text
 models/fh6_car_select_yolo.pt
 ```
+
+如果日志反复出现：
+
+```text
+[AISelect] model not found
+```
+
+说明模型没有放到默认路径，或者 `config.json` 里的 `ai_model_path` 不正确。
 
 ## 目录结构
 
