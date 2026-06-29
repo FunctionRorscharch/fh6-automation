@@ -129,7 +129,7 @@ FH6Auto 是一个基于 Python、图像识别和输入自动化的 FH6 本地辅
 2. 安装普通依赖：
 
    ```powershell
-   cd C:\Users\46353\OneDrive\Documents\fh6
+   cd <项目目录>
    python -m venv .venv
    .\.venv\Scripts\python.exe -m pip install -r requirements.txt
    ```
@@ -155,8 +155,42 @@ FH6Auto 是一个基于 Python、图像识别和输入自动化的 FH6 本地辅
 ## 日常启动
 
 ```powershell
-cd C:\Users\46353\OneDrive\Documents\fh6
+cd <项目目录>
 .\.venv\Scripts\python.exe main.py
+```
+
+## 当前使用配置
+
+当前维护测试使用的 `config.json` 关键配置如下，可作为第一次运行后的参考：
+
+```json
+{
+    "race_count": 22,
+    "buy_count": 33,
+    "cj_count": 33,
+    "chk_1": true,
+    "chk_2": true,
+    "chk_3": true,
+    "next_1": 2,
+    "next_2": 3,
+    "next_3": 1,
+    "global_loops": 10,
+    "skill_dirs": ["right", "up", "up", "up", "left"],
+    "skill_names": ["吸引眼球", "掀桌子", "横冲直撞", "乐趣开始", "拉力赛传奇", "抽奖精灵"],
+    "share_code": "332270243",
+    "cr_amount": 4000000,
+    "auto_restart": false,
+    "restart_cmd": "start steam://run/2483190",
+    "race_timeout": 300,
+    "ai_assist": false,
+    "ai_prefer": false,
+    "ai_only": false,
+    "ai_auto_capture": false,
+    "diagnostic_mode": false,
+    "recognition_profiles": {},
+    "smart_page": false,
+    "ai_model_path": "models/fh6_car_select_yolo.pt"
+}
 ```
 
 ## AI 可选环境
